@@ -1,0 +1,27 @@
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import {crmFetch,digest} from '../api.mjs';
+const db=new DatabaseSync(':memory:');
+const migration=readFileSync(new URL('../migrations/002_operacional.sql',import.meta.url),'utf8');
+db.exec(migration); db.exec(migration);
+const wrap=(sql,args=[])=>({bind:(...a)=>wrap(sql,a),all:async()=>({results:db.prepare(sql).all(...args)}),run:()=>({meta:{changes:db.prepare(sql).run(...args).changes}})});
+const env={DB:{prepare:sql=>wrap(sql),batch:async stmts=>{db.exec('BEGIN');try{const r=stmts.map(s=>s.run());db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}}}};
+const tokens={ricardo:'r'.repeat(40),marketing:'m'.repeat(40),diretoria:'d'.repeat(40)};
+env.CRM_IDENTITIES_JSON=JSON.stringify(await Promise.all(Object.entries(tokens).map(async([papel,token])=>({id:papel,papel,sha256:await digest(token),ativo:true,expira_em:'2099-01-01T00:00:00Z'}))));
+const call=(role,method,path,data)=>crmFetch(new Request('https://test.local/api/asr-crm/'+path,{method,headers:{Authorization:'Bearer '+(tokens[role]||'x'.repeat(40)),'Content-Type':'application/json'},body:data?JSON.stringify(data):undefined}),env);
+let r=await call('ricardo','POST','ofertas',{titulo:'Oferta de teste local',valor_centavos:170000});assert.equal(r.status,201);const saved=await r.json();
+r=await call('diretoria','GET','ofertas');assert.equal((await r.json())[0].id,saved.id);
+assert.equal((await call('marketing','POST','ofertas',{titulo:'Negada'})).status,403);
+assert.equal((await call('diretoria','POST','ofertas',{titulo:'Negada'})).status,403);
+assert.equal((await call('invalid','GET','ofertas')).status,401);
+assert.equal((await call('marketing','POST','leads',{titulo:'Lead teste'})).status,201);
+assert.equal((await call('ricardo','PUT','ofertas/'+saved.id,{titulo:'Oferta revisada',versao:1})).status,200);
+assert.equal((await call('ricardo','PUT','ofertas/'+saved.id,{titulo:'Conflito',versao:1})).status,409);
+const audit=await(await call('diretoria','GET','auditoria')).json();assert.equal(audit.length,3);assert.ok(audit.find(e=>e.acao==='editar'&&e.antes_json));
+assert.equal(await crmFetch(new Request('https://test.local/rota-original'),env),null);
+// Falha na auditoria reverte a gravacao inteira.
+db.exec("CREATE TRIGGER test_fail BEFORE INSERT ON asr_crm_auditoria BEGIN SELECT RAISE(ABORT,'test'); END;");
+assert.equal((await call('ricardo','POST','ofertas',{titulo:'Rollback'})).status,500);
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM asr_crm_registros WHERE json_extract(dados_json,'$.titulo')='Rollback'").get().n,0);
+console.log('PASS: migracao repetida; oferta Ricardo -> diretoria; permissoes; token invalido; lead Marketing; edicao; conflito de versao; auditoria; rotas preservadas; rollback atomico. Teste LOCAL SQLite, sem Cloudflare/Vercel.');
