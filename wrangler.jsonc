@@ -1,0 +1,15 @@
+{
+  "name": "spring-haze-aabf",
+  "main": "worker-completo.mjs",
+  "account_id": "93644cd21998fca2ef421cba4f0b49ca",
+  "compatibility_date": "2026-10-20",
+  "keep_vars": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "asr-funil-sql",
+      "database_id": "8c166e50-9bda-45b7-bb53-33a9e7537801",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

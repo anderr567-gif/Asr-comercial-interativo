@@ -16,6 +16,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           COMMIT: ${{ github.sha }}
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git init .
           git remote add origin "https://github.com/${REPOSITORY}.git"
           git fetch --depth=1 origin "$COMMIT"
